@@ -1,0 +1,539 @@
+---
+title: "Tennis"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+
+library(tidyverse)
+library(elo)
+library(GerminaR)
+library(purrr)
+```
+
+## R Markdown
+
+___________________________________________________________________
+## Data import
+
+Importing matches data from online git
+
+
+Function import 
+```{r}
+
+import_central_matches <- function(i,central_matches = as.data.frame(c())){
+  years_matches <- read.csv(file=paste("https://raw.githubusercontent.com/JeffSackmann/tennis_atp/master/atp_matches_",i,".csv",sep = ""))
+  central_matches <- central_matches %>% bind_rows(years_matches)
+  return(central_matches)
+}
+
+```
+
+
+```{r}
+import <- functions(){
+  timeline <- c(1968:as.numeric(substr(as.character(Sys.Date()),1,4)))
+  central_matches <- map_df(timeline,import_central_matches) %>% distinct()
+  central_matches %>% write.csv(file="atp_matches_combined.csv")
+  
+  return(central_matches)
+}
+
+central_matches <- import()
+
+```
+
+___________________________________________________________________
+## Data tidying
+
+Updates *central_matches* from online git and add new matches to *central_matches*
+
+```{r}
+
+ 
+tennis_update <- function(){
+   
+  df <- read.csv("atp_matches_combined.csv") %>% select(-X)
+   
+   update_date <- df %>% 
+      select(tourney_date) %>% 
+      distinct(tourney_date) %>% 
+      top_n(1) %>% 
+      as.character() %>% 
+      as.Date(format = '%Y%m%d')
+    
+    tyear <- as.numeric(substr(as.character(Sys.Date()),1,4))
+  
+  
+    last_matches <- read.csv(file=paste("https://raw.githubusercontent.com/JeffSackmann/tennis_atp/master/atp_matches_",tyear,".csv",sep = ""))
+    
+    last_matches <- last_matches %>% 
+      select(tourney_date) %>% 
+      distinct(tourney_date) %>% 
+      top_n(1) %>% 
+      as.character() %>% 
+      as.Date(format = '%Y%m%d')
+    
+    update_year <- as.numeric(substr(as.character(update_date),1,4))
+
+    
+    if(update_date < last_matches){
+        
+      difference <- tyear-update_year
+      years_missing <- c((tyear - (difference)):tyear)
+      df <- union(df,map_df(years_missing,import_central_matches)) %>% distinct()
+     
+      df %>% write.csv(file="atp_matches_combined.csv")
+    }
+    else{NULL}
+    
+    
+    
+   return(as.data.frame(df) %>% distinct())
+    
+}
+
+
+central_matches <- tennis_update()
+
+```
+
+Function to fill in the blanks in the dataset
+
+```{r}
+# There was Nones in the surface collumn for the Davis Cup 2017
+data_fill <- function(central_matches) {
+  central_matches <- central_matches %>%  
+    mutate(surface = as.character(surface))
+  central_matches <- central_matches %>% mutate(surface = case_when(surface == "None" ~ "Hard", 
+                                TRUE ~ surface
+                                ))
+  return(central_matches)
+}
+
+
+
+central_matches <- data_fill(central_matches)
+
+```
+
+___________________________________________________________________
+## Elo computation
+
+Full elo calculation based on *central_matches* results
+
+```{r}
+
+elo_calculation <- function(central_matches) {
+
+central_matches_temp <- central_matches
+                # Name change to avoid modifying the global variable
+  
+central_matches_temp <- central_matches_temp %>% 
+  mutate(tourney_id = as.character(tourney_id)) %>%
+    mutate(
+      score1 = 1, # Winners always score 1
+      score0 = 0, # Loosers always score 0
+      winner_id = as.character(winner_id),
+      loser_id = as.character(loser_id)
+      )
+
+elo_run <- elo.run(formula =  score(score1 , score0) ~ winner_id + loser_id, data = central_matches_temp, k = 50)
+
+elo_scores <- elo_run[["elos"]]
+elo_players <- elo_run[["teams"]]
+
+elo_scores <- as.data.frame(elo_scores)
+colnames(elo_scores)[1:7] <- c("id1","id2","proba","winner","diffelo","elo1","elo2")
+elo_scores$id1 <- lapply(elo_scores$id1,FUN = function(x){elo_players[[x]]}) #ID update from elo_players
+elo_scores$id2 <- lapply(elo_scores$id2,FUN = function(x){elo_players[[x]]})
+elo_scores <- elo_scores %>% select(-winner)
+
+return(elo_scores)
+}
+
+```
+
+Adding 4 collumns to central_matches : each player after match elo, the probability of player 1 winning and the elo modification caused by the match
+
+```{r}
+
+elo_central_matches <- function(central_matches) {
+  central_matches_temp <- central_matches %>% drop_na(tourney_date,winner_id)
+  elos <- elo_calculation(central_matches)
+  try(central_matches_temp <- select(central_matches_temp,-proba,-diffelo,-elo1,-elo2), silent = TRUE)
+  central_matches_temp <- cbind.data.frame(central_matches_temp,elos)
+  central_matches_temp <- central_matches_temp %>% select(-c(id1,id2)) # We can get rid of id1 and id2 since it is redundant with winner_id and loser_id
+  return(central_matches_temp)
+}
+
+
+central_matches <- elo_central_matches(central_matches)
+
+
+<<<<<<< HEAD
+=======
+```
+
+
+Run elo for different type of fields
+
+```{r}
+elo_actu <- function(field = c(levels(as.factor(central_matches$surface)))){
+  df <- central_matches %>% filter(surface %in% field)
+  df <- elo_central_matches(df)
+  return(df)
+  }
+
+elo_actual <- elo_actu(c("Clay","Hard"))
+
+
+
+>>>>>>> 8e2d57ec07fef08d740e8e719fe6973647c766d8
+```
+
+Adding two elo collumns to the player table, one with all successive elos and one with the final elo
+
+```{r}
+
+```
+
+Run elo for different type of surface
+
+```{r}
+elo_surface <- function(surface = c(levels(as.factor(central_matches$surface)))){
+  df <- central_matches %>% filter(surface %in% surface)
+  df <- elo_central_matches(df)
+  return(df)
+  
+}
+
+field <- elo_surface(c("Clay","Hard"))
+```
+
+
+Ben : WIP
+```{r}
+<<<<<<< HEAD
+
+elo_player <- function(players = IDtbl, ID) {
+=======
+#rrrrr
+elo_player <- function(players, ID) {
+>>>>>>> 8e2d57ec07fef08d740e8e719fe6973647c766d8
+  ID_row <- players %>% filter(ID == ID)
+  return(ID_row$current_elo)
+}
+
+elo_player(ID = 100581)
+
+```
+
+___________________________________________________________________
+
+## Functions to extract variables
+
+1. Base functions :
+
+Create a table associating ID to player based on *central_matches* (Name Surname format)
+
+```{r}
+
+player_ID_table <-function(central_matches) {
+  IDtblw <- central_matches %>% 
+    select(winner_id,winner_name) %>% 
+    group_by(winner_id) %>% 
+    distinct() %>% 
+    ungroup() %>% 
+    rename("IDw" = "winner_id" ) %>% 
+    rename("name" = "winner_name")
+
+  IDtbll <- central_matches %>% 
+    select(loser_id,loser_name) %>% 
+    group_by(loser_id) %>% 
+    distinct() %>% 
+    ungroup() %>% 
+    rename("IDl" = "loser_id" ) %>% 
+    rename("name" = "loser_name")
+
+  IDtbl <- full_join(IDtbll, IDtblw, by = "name") %>% mutate(
+    ID = case_when(is.na(IDw) == F ~ IDw,T ~ IDl)) %>% 
+    select(-IDl,-IDw) 
+}
+
+IDtbl <- player_ID_table(central_matches)
+
+```
+
+Finding ID of player with his full name from match history 
+
+```{r}
+findID <- function(Name, data = Idtbl) {
+  x <- IDtbl %>% filter(name == Name)
+  x <- as.numeric(x$ID)
+  return(x)
+  remove(x)
+}
+
+findID("David Goffin",IDtbl)
+```
+
+Finding full name of player with his ID from *IDtbl* table
+
+```{r}
+ID_to_name <- function(id, data = IDtbl) {
+  ID <- IDtbl %>% filter(ID == id) %>% 
+    select(name)
+  return(ID)
+}
+  ID_to_name(105676,IDtbl)
+```
+
+2. History functions
+
+Match history of a player from his ID with all collumns
+
+```{r}
+
+player_history_table_raw <- function(ID, data = elo_actual) {
+  central_matches_temp <- data %>% 
+    filter(winner_id == ID | loser_id == ID) %>% 
+    mutate(status = case_when(winner_id == ID ~ "Win",T ~ "Loss"),
+           opponent = case_when(winner_id == ID ~ loser_name,
+                                T ~ winner_name),
+           year = as.integer(substr(tourney_date, 1, 4))) %>% 
+    arrange(-tourney_date)
+  return(central_matches_temp)
+}
+
+player_history_table_raw(100581)
+```
+
+
+Match history of a player from his ID with only relevant collumns
+
+```{r}
+<<<<<<< HEAD
+player_history_table <- function(ID) {
+ tablehist <- player_history_table_raw(ID) %>%
+=======
+
+
+player_history_table <- function(ID) {
+   tablehist <- player_history_table_raw(ID) %>%
+>>>>>>> 8e2d57ec07fef08d740e8e719fe6973647c766d8
+   select(status,tourney_date,opponent,score,surface)
+ return(tablehist)
+}
+
+player_history_table(100581)
+```
+
+Matches history of several players from vector of IDs with all columns (histories of each player are binded by row)
+
+```{r}
+player_history_table_raw_multiple <- function(IDs) {
+  n <- length(IDs)
+  players_history <- map_dfr(IDs, player_history_table_raw, .id = "id")
+  names <- map(as.character(IDs), ID_to_name)
+  for (i in 1:length(players_history$id)) {
+    players_history$id[i] <- as.character(names[[as.integer(players_history$id[i])]])
+  }
+  players_history <- players_history %>% 
+    mutate(id = as.factor(id), 
+           round = as.character(round))
+ 
+  return(players_history)
+}
+
+player_history_table_raw_multiple(c(104745, 103819))
+```
+
+
+Elo history of a player from ID : returns the ELO of the player at the end of each year from 1968 to 2018
+
+```{r}
+elo_history <- function(ID) {
+  elo_history <- player_history_table_raw(ID) %>%
+    arrange(tourney_date) %>% 
+    group_by(year) %>% 
+    slice(1) %>% 
+    summarise(elo = case_when(
+        winner_id == ID ~ elo1,
+        loser_id == ID ~ elo2))
+  time_range <- data.frame(year = 1968:2018)
+
+  return(full_join(time_range, elo_history %>% mutate(year = as.numeric(year)), by = "year"))  
+}
+
+elo_history(100581)
+```
+
+ELOs history of several players from a vector of IDs with all columns : returns the ELO of each player at the end of each year from 1968 to 2018 (histories are binded by row)
+
+```{r}
+elo_history_multiple <- function(IDs) {
+  players_elo_history <- map_dfr(IDs, elo_history, .id = "id")
+  
+  names <- map(as.character(IDs), ID_to_name)
+  for (i in 1:length(players_elo_history$id)) {
+    players_elo_history$id[i] <- as.character(names[[as.integer(players_elo_history$id[i])]])
+  }
+  players_elo_history <- players_elo_history %>% mutate(id = as.factor(id))
+  players_elo_history$elo[is.na(players_elo_history$elo)] <- 0
+  return(players_elo_history)
+}
+
+elo_history_multiple(c(104745, 103819))
+```
+
+
+3. Plot functions used in the App
+
+COrrespondance table on which the use of the statistic plot function below relies in the Shiny App
+
+```{r}
+stat_table <- data.frame(choices = c("mean number of aces per game", "mean number of double fault", "mean percentage of first serve won per game"), short = c("ace", "df", "1stWon"))
+```
+
+Function to plot any statistic (example is mean number of double fault per match)
+
+```{r}
+stat_plot <- function(data, stat) {
+  data <- na.omit(data) 
+  
+  total <- data %>% 
+    group_by(year, id) %>% 
+    summarise(total = n())
+  
+  a1 <- data %>%
+    filter(status == "Loss") %>% 
+    group_by(year, id) %>% 
+    summarise_at(vars(matches(paste0("l_", stat))), sum)
+  
+ a2 <- data %>% filter(status == "Win") %>% 
+      group_by(year, id) %>% 
+      summarise_at(vars(matches(paste0("w_", stat))), sum)
+ 
+  table <- inner_join(total, a1, by = c("year", "id")) %>% 
+    inner_join(a2, by = c("year", "id"))
+  names(table)[4:5] <- c("x1","x2")
+  table %>% 
+    group_by(year, id) %>% 
+    mutate(mean_stats = (x1+x2)/total) %>% 
+    ggplot(aes(x = year, y = mean_stats, colour = id)) +
+    geom_line()
+
+  
+}
+
+stat_plot(player_history_table_raw_multiple(c(104745, 103819)), "df")
+```
+
+
+4. Elo computation functions
+
+```{r}
+<<<<<<< HEAD
+elo_player <- function(ID){
+  elop <- central_matches %>% select(winner_id,loser_id,elo1,elo2,tourney_date) %>% 
+=======
+elo_player <- function(ID,data = central_matches){
+  elop <- data %>% select(winner_id,loser_id,elo1,elo2,tourney_date) %>% 
+>>>>>>> 8e2d57ec07fef08d740e8e719fe6973647c766d8
+    filter(winner_id == ID | loser_id == ID) %>% 
+    arrange(-tourney_date) %>% 
+    slice(1) %>%  
+    mutate(
+      lastelo = case_when(
+        winner_id == ID ~ elo1,
+        loser_id == ID ~ elo2
+      ))
+  
+  return(elop$lastelo)
+}
+
+<<<<<<< HEAD
+eloplayer(100581)
+```
+
+
+
+Run elo for different type of surface
+
+```{r}
+elo_surface <- function(surface = c(levels(as.factor(central_matches$surface)))){
+  df <- central_matches %>% filter(surface %in% surface)
+  df <- elo_central_matches(df)
+  return(df)
+  
+}
+
+field <- elo_surface(c("Clay","Hard"))
+```
+
+=======
+elo_player(100581)
+```
+
+
+>>>>>>> 8e2d57ec07fef08d740e8e719fe6973647c766d8
+COmpute according to elo
+
+```{r}
+prob_win1 <- function(ID1,ID2){
+  prob <- elo.prob(elo_player(ID1),elo_player(ID2))
+  return(prob)
+}
+
+prob_win1(100581,100644)
+```
+
+
+
+Odds function
+
+```{r}
+
+
+odds_bet<- function(odd1,odd2,ID1,ID2, seuil = 5/100){
+  myprobwin1 <- prob_win1(ID1,ID2)
+  pwinbetter1 <- 1/odd1
+  pwinbetter2 <- 1/odd2
+  marginbetter <- pwinbetter1 + pwinbetter1 - 1
+  
+  delta1 <- pwinbetter1 - myprobwin1
+  delta2 <- pwinbetter2 - (1-myprobwin1)  
+  
+  if(delta1 >= seuil & delta2 <= seuil){
+    recommandation <- "betting on player 1"
+  }
+  else if (delta2 >= seuil & delta1 <= seuil){
+    recommandation <- "betting on player 2"
+  }
+  else if (delta1 <= seuil & delta2 <= seuil){
+    recommandation <- "not betting"
+  }
+  
+  else {
+    recommandation <- "that you verify the betting odds again, if they are correct bet on both players"
+  }
+  
+  recommandation <- paste("We would recommand",recommandation,"!",sep = "")
+    
+  return(list(marginbetter,delta1,delta2,recommandation))
+}
+
+
+odds_bet(2,2,104905,104755)
+
+
+```
+
+its oks

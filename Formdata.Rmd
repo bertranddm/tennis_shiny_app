@@ -1,0 +1,107 @@
+---
+title: "Formdata"
+author: "Romain"
+date: "3 décembre 2018"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(elo)
+library(dplyr)
+library(GerminaR)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+#Modification test from Ben
+
+Creation of df following the content dled
+
+```{r}
+
+players <- read.csv("Data/atp_players.csv",header = F)
+colnames(players)[1:6]<-c("ID","Name","Surname","Hand","Birth","Country")
+players <- players %>% mutate(FullName = paste(Name, Surname))
+
+central_matches <- read.csv("atp_matches_combined.csv")
+central_matches <- central_matches %>% filter(tourney_id != "")
+```
+
+Initialiwation of elo, have to be put into a function
+
+```{r}
+
+
+central_matches %>% mutate(tourney_id = as.character(tourney_id)) %>%  filter(substr(tourney_id,0,4) =="1968") %>% mutate(
+  elowinner = 1500,
+  eloloser = 1500
+  )
+
+central_matches$score1 <- 1
+central_matches$score0 <- 0
+central_matches$winner_id <- as.character(central_matches$winner_id)
+central_matches$loser_id <- as.character(central_matches$loser_id)
+
+players <- players %>% mutate(elo = 1500)
+elo_init <- as.vector(t(players$elo))
+names(elo_init) <- players$ID
+
+
+players$elo <- 1500
+
+df <- elo.run(formula =  score(score1,score0)~ winner_id + loser_id, data = central_matches, k = 50, initial.elos = elo_init)
+
+elos <- df[["elos"]]
+elos <- as.data.frame(elos)
+colnames(elos)[1:7] <- c("id1","id2","proba","winner","diffelo","elo1","elo2")
+dim(elos)
+
+
+central_matches$elowinner <- elos$elo1
+central_matches$eloloser <- elos$elo2
+
+
+#Modification de la variable SUrface
+cond <- central_matches$surface == ""
+
+for (i in 1:length(cond)) {
+  if (cond[i] == T)
+    central_matches$surface[i] <- "None"
+}
+```
+
+Table ID = Player
+
+```{r}
+
+IDtblw <- central_matches %>% 
+  select(winner_id,winner_name) %>% 
+  group_by(winner_id) %>% 
+  distinct() %>% 
+  ungroup() %>% 
+  rename("IDw" = "winner_id" ) %>% 
+  rename("name" = "winner_name")
+
+IDtbll <- central_matches %>% 
+  select(loser_id,loser_name) %>% 
+  group_by(loser_id) %>% 
+  distinct() %>% 
+  ungroup() %>% 
+  rename("IDl" = "loser_id" ) %>% 
+  rename("name" = "loser_name")
+
+IDtbl <- full_join(IDtbll, IDtblw, by = "name") %>% mutate(
+  ID = case_when(is.na(IDw) == F ~ IDw,
+                   T ~ IDl)) %>% 
+  select(-IDl,-IDw) 
+
+
+
+remove(IDtbll,IDtblw)
+
+```

@@ -1,0 +1,64 @@
+---
+title: "Importdata"
+author: "Romain"
+date: "3 décembre 2018"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(elo)
+library(dplyr)
+library(GerminaR)
+library(purrr)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+First import run
+
+```{r,message=FALSE}
+
+timeline <- c(1968:as.numeric(substr(as.character(Sys.Date()),1,4)))
+
+central_matches <- as.data.frame(c())
+
+central_matches <- map_df(timeline,import_central_matches) %>% distinct()
+
+
+```
+
+Update run 
+Not working atm : creating doubles in the years updated
+```{r}
+
+central_matches <- read.csv("atp_matches_combined.csv") %>% select(-X)
+
+
+#update of the data aivalable
+central_matches <- tennis_updated(central_matches)
+
+```
+
+
+
+
+
+
+Import part 2 overwrite
+
+
+
+
+```{r} 
+#overwrite the new file
+
+
+central_matches %>% write.csv(file="atp_matches_combined.csv")
+```
+
+

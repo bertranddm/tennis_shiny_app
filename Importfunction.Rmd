@@ -1,0 +1,83 @@
+---
+title: "Importfn"
+author: "Romain"
+date: "3 décembre 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+
+Update function incomplete (need other if)
+
+```{r}
+library(tidyverse)
+library(elo)
+library(dplyr)
+library(GerminaR)
+library(purrr)
+```
+
+
+Update function
+```{r}
+
+#central_matches <- read.csv("atp_matches_combined.csv") %>% select(-X)
+ 
+tennis_updated <- function(df){
+   
+   update_date <- df %>% 
+      select(tourney_date) %>% 
+      distinct(tourney_date) %>% 
+      top_n(1) %>% 
+      as.character() %>% 
+      as.Date(format = '%Y%m%d')
+    
+    tyear <- as.numeric(substr(as.character(Sys.Date()),1,4))
+  
+  
+    last_matches <- read.csv(file=paste("https://raw.githubusercontent.com/JeffSackmann/tennis_atp/master/atp_matches_",tyear,".csv", sep = ""))
+    
+    last_matches <- last_matches %>% 
+      select(tourney_date) %>% 
+      distinct(tourney_date) %>% 
+      top_n(1) %>% 
+      as.character() %>% 
+      as.Date(format = '%Y%m%d')
+    
+    update_year <- as.numeric(substr(as.character(update_date),1,4))
+
+    
+   # if(update_date <= last_matches){
+      if (update_date < 0){  
+      difference <- tyear-update_year
+      years_missing <- c((tyear - (difference)):tyear)
+      
+      
+
+      
+      df <- intersect(map_df(years_missing,import_central_matches),df)
+      
+    }
+    
+   return(as.data.frame(df))
+    
+}
+
+```
+
+
+Function import 
+```{r}
+
+import_central_matches <- function(i){
+  years_matches <- read.csv(file=paste(file=paste("https://raw.githubusercontent.com/JeffSackmann/tennis_atp/master/atp_matches_",i,".csv",sep = "")))
+  central_matches <- central_matches %>% bind_rows(years_matches)
+  return(central_matches)
+}
+```
+

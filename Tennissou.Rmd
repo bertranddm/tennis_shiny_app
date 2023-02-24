@@ -1,0 +1,212 @@
+---
+title: "Tennis"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(elo)
+library(dplyr)
+library(GerminaR)
+```
+
+## R Markdown
+
+
+
+
+Finding ID of player with his name 
+
+```{r}
+findID <- function(Name){
+  x <- IDtbl %>% filter(name == Name)
+  x <- as.numeric(x$ID)
+  return(x)
+}
+
+findID("David Goffin")
+```
+
+
+Finding match history of player with ID
+```{r}
+
+historyplayer <- function(ID){
+playerhist <- central_matches %>% 
+  filter(winner_id == ID | loser_id == ID) %>% 
+   arrange(-tourney_date) %>% 
+  
+  mutate(Status = case_when(winner_id == ID ~ "Win",
+                            T ~ "Loss"),
+         result = case_when(winner_id == ID ~ "1", loser_id == ID ~ "0"),
+         Opponent = case_when(winner_id == ID ~ loser_name,
+                            T ~ winner_name),
+         month = as.integer(substr(as.character(tourney_date), 5, 6)), 
+         year = as.integer(substr(as.character(tourney_date), 1, 4))) 
+  
+return(playerhist)
+}
+
+historyplayer(100581)
+```
+
+
+Table to plot in the shyni
+```{r}
+historytable <- function(ID){
+ tablehist <- historyplayer(ID) %>% select(Status,tourney_date,Opponent,score,surface)
+ return(tablehist)
+}
+
+historytable(100581)
+```
+
+
+Finding the elo of a player with ID
+```{r}
+
+eloplayer <- function(ID){
+  elop <- central_matches %>% select(winner_id,loser_id,elowinner,eloloser,tourney_date) %>% 
+    filter(winner_id == ID | loser_id == ID) %>% 
+    arrange(-tourney_date) %>% 
+    slice(1) %>%  
+    mutate(
+      lastelo = case_when(
+        winner_id == ID ~ elowinner,
+        loser_id == ID ~ eloloser
+      ))
+  
+  return(elop$lastelo)
+}
+
+eloplayer(100581)
+
+```
+
+COmpute proba with elo
+
+```{r}
+probwin1 <- function(ID1,ID2){
+  prob <- elo.prob(eloplayer(ID1),eloplayer(ID2))
+  return(prob)
+}
+
+probwin1(100581,100644)
+```
+
+```{r}
+ID_to_name <- function(id) {
+  name <- as.character(as.vector(IDtbl %>% filter(ID == id))[1])
+  return(name)
+}
+  ID_to_name(100001)
+```
+
+
+```{r}
+elo_history <- function(ID) {
+  elo_history <- historyplayer(ID) %>%
+    arrange(tourney_date) %>% 
+    group_by(year) %>% 
+    slice(1) %>% 
+    summarise(elo = case_when(
+        winner_id == ID ~ elowinner,
+        loser_id == ID ~ eloloser))
+ 
+   time_range <- data.frame(year = 1968:as.numeric(substr(as.character(Sys.Date()),1,4)))
+
+  return(full_join(time_range, elo_history %>% mutate(year = as.numeric(year)), by = "year"))  
+}
+
+elo_history(104745)
+```
+
+______________________________________________________________________________
+
+Dodge the boucle for
+
+
+```{r}
+elo_history_multiple <- function(players_ids) {
+  n <- length(players_ids)
+  players_elo_history <- map_dfr(players_ids, elo_history, .id = "id")
+  
+  names <- map(as.character(players_ids), ID_to_name)
+  for (i in 1:length(players_elo_history$id)) {
+    players_elo_history$id[i] <- names[[as.integer(players_elo_history$id[i])]]
+  }
+  players_elo_history$elo[is.na(players_elo_history$elo)] <- 0
+  
+  
+  return(players_elo_history)
+}
+
+elo_history_multiple(c(104745, 103819))
+```
+
+
+
+
+Finding history of several players with ID
+
+```{r}
+
+player_history_multiple <- function(players_ids) {
+  n <- length(players_ids)
+  players_history <- map_dfr(players_ids, historyplayer, .id = "id")
+  
+  names <- map(as.character(players_ids), ID_to_name)
+  for (i in 1:length(players_history$id)) {
+    players_history$id[i] <- names[[as.integer(players_history$id[i])]]
+  }
+  players_history <- players_history %>% mutate(id = as.factor(id), round = as.character(round), result = as.numeric(result))
+ 
+  return(players_history)
+}
+
+z <- player_history_multiple(c(104745, 103819))
+```
+
+
+
+Function to plot any statistic (example is mean number of ace per match)
+
+```{r}
+stat_plot <- function(data, stat) {
+  data <- na.omit(data) 
+  
+  total <- data %>% group_by(year, id) %>% summarise(total = n())
+  
+  a1 <- data %>%
+    filter(result == 0) %>% 
+    group_by(year, id) %>% 
+    summarise_at(vars(matches(paste0("l_", stat))), sum)
+  
+ a2 <- data %>% filter(result == 1) %>% 
+      group_by(year, id) %>% 
+      summarise_at(vars(matches(paste0("w_", stat))), sum)
+ 
+  table <- inner_join(total, a1, by = c("year", "id")) %>% 
+    inner_join(a2, by = c("year", "id"))
+  names(table)[4:5] <- c("x1","x2")
+  browser()
+  table %>% 
+    group_by(year, id) %>% 
+    mutate(mean_stats = (x1+x2)/total) %>% 
+    ggplot(aes(x = year, y = mean_stats, colour = id)) +
+    geom_line()
+
+  
+}
+
+stat_plot(player_history_multiple(c(104745, 103819)), "df")
+
+```
+
+
+
+```{r}
+stat_table <- data.frame(choices = c("mean number of aces per game", "mean number of double fault", "mean percentage of first serve won per game"), short = c("ace", "df", "1stWon"))
+
+```
+
